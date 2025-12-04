@@ -28,13 +28,10 @@ function generateLetterIcon(domain) {
 }
 
 /**
- * 从 HTML 中解析 favicon 链接和 title
+ * 从 HTML 中解析 favicon 链接
  */
 function parseFaviconFromHtml(html, baseUrl) {
   const $ = cheerio.load(html);
-
-  // 获取 title
-  const title = $('title').text().trim() || '';
 
   // 按优先级查找 favicon
   const selectors = [
@@ -44,46 +41,23 @@ function parseFaviconFromHtml(html, baseUrl) {
     'link[rel="apple-touch-icon-precomposed"]'
   ];
 
-  let faviconUrl = null;
   for (const selector of selectors) {
     const link = $(selector).attr('href');
     if (link) {
       // 处理相对路径和绝对路径
       if (link.startsWith('http')) {
-        faviconUrl = link;
+        return link;
       } else if (link.startsWith('//')) {
-        faviconUrl = 'https:' + link;
+        return 'https:' + link;
       } else if (link.startsWith('/')) {
-        faviconUrl = baseUrl + link;
+        return baseUrl + link;
       } else {
-        faviconUrl = baseUrl + '/' + link;
+        return baseUrl + '/' + link;
       }
-      break;
     }
   }
 
-  return { faviconUrl, title };
-}
-
-/**
- * 尝试获取网页 title
- */
-async function fetchTitle(url, timeout = 5000) {
-  try {
-    const response = await axios.get(url, {
-      timeout,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      maxRedirects: 0,
-      validateStatus: (status) => status === 200
-    });
-
-    const $ = cheerio.load(response.data);
-    return $('title').text().trim() || '';
-  } catch (error) {
-    return '';
-  }
+  return null;
 }
 
 /**
@@ -180,7 +154,7 @@ async function tryFetchFavicon(url, timeout = 5000) {
 }
 
 /**
- * 从网页 HTML 中查找并获取 favicon 和 title
+ * 从网页 HTML 中查找并获取 favicon
  */
 async function fetchFaviconFromHtml(url, timeout = 5000) {
   try {
@@ -194,24 +168,20 @@ async function fetchFaviconFromHtml(url, timeout = 5000) {
     });
 
     const baseUrl = new URL(url).origin;
-    const { faviconUrl, title } = parseFaviconFromHtml(response.data, baseUrl);
+    const faviconUrl = parseFaviconFromHtml(response.data, baseUrl);
 
     if (faviconUrl) {
-      const result = await tryFetchFavicon(faviconUrl, timeout);
-      if (result.success) {
-        result.title = title;
-      }
-      return result;
+      return await tryFetchFavicon(faviconUrl, timeout);
     }
 
-    return { success: false, error: 'No favicon found in HTML', title };
+    return { success: false, error: 'No favicon found in HTML' };
   } catch (error) {
     return { success: false, error: error.message };
   }
 }
 
 /**
- * 主函数：获取指定域名的 favicon 和 title
+ * 主函数：获取指定域名的 favicon
  */
 async function getFavicon(domain) {
   // 标准化域名
@@ -223,8 +193,6 @@ async function getFavicon(domain) {
   console.log(`Attempting to fetch favicon for: ${domain}`);
   console.log(`Trying variants:`, urlVariants);
 
-  let title = '';
-
   // 对每个 URL 变体进行尝试
   for (const baseUrl of urlVariants) {
     // 策略 1: 尝试 /favicon.ico
@@ -232,14 +200,7 @@ async function getFavicon(domain) {
     let result = await tryFetchFavicon(`${baseUrl}/favicon.ico`);
     if (result.success) {
       console.log(`Success: ${baseUrl}/favicon.ico`);
-      // 获取 title
-      title = await fetchTitle(baseUrl);
-      return {
-        success: true,
-        data: result.data,
-        contentType: result.contentType,
-        title
-      };
+      return result;
     }
 
     // 策略 2: 从 HTML 中解析 favicon
@@ -247,16 +208,7 @@ async function getFavicon(domain) {
     result = await fetchFaviconFromHtml(baseUrl);
     if (result.success) {
       console.log(`Success: Found in HTML from ${baseUrl}`);
-      return {
-        success: true,
-        data: result.data,
-        contentType: result.contentType,
-        title: result.title || ''
-      };
-    }
-    // 保存 title（即使 favicon 失败）
-    if (result.title) {
-      title = result.title;
+      return result;
     }
   }
 
@@ -266,8 +218,7 @@ async function getFavicon(domain) {
     success: true,
     data: generateLetterIcon(domain),
     contentType: 'image/svg+xml',
-    generated: true,
-    title: title || domain
+    generated: true
   };
 }
 
