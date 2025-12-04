@@ -28,10 +28,13 @@ function generateLetterIcon(domain) {
 }
 
 /**
- * 从 HTML 中解析 favicon 链接
+ * 从 HTML 中解析 favicon 链接和 title
  */
 function parseFaviconFromHtml(html, baseUrl) {
   const $ = cheerio.load(html);
+
+  // 获取 title
+  const title = $('title').text().trim() || '';
 
   // 按优先级查找 favicon
   const selectors = [
@@ -41,20 +44,95 @@ function parseFaviconFromHtml(html, baseUrl) {
     'link[rel="apple-touch-icon-precomposed"]'
   ];
 
+  let faviconUrl = null;
   for (const selector of selectors) {
     const link = $(selector).attr('href');
     if (link) {
       // 处理相对路径和绝对路径
       if (link.startsWith('http')) {
-        return link;
+        faviconUrl = link;
       } else if (link.startsWith('//')) {
-        return 'https:' + link;
+        faviconUrl = 'https:' + link;
       } else if (link.startsWith('/')) {
-        return baseUrl + link;
+        faviconUrl = baseUrl + link;
       } else {
-        return baseUrl + '/' + link;
+        faviconUrl = baseUrl + '/' + link;
+      }
+      break;
+    }
+  }
+
+  return { faviconUrl, title };
+}
+
+/**
+ * 尝试获取网页 title
+ */
+async function fetchTitle(url, timeout = 5000) {
+  try {
+    const response = await axios.get(url, {
+      timeout,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      maxRedirects: 0,
+      validateStatus: (status) => status === 200
+    });
+
+    const $ = cheerio.load(response.data);
+    return $('title').text().trim() || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+/**
+ * 根据文件头魔数判断实际的 MIME 类型
+ */
+function detectMimeType(buffer) {
+  if (!buffer || buffer.length < 4) return null;
+
+  const header = buffer.slice(0, 4);
+
+  // PNG: 89 50 4E 47
+  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47) {
+    return 'image/png';
+  }
+
+  // JPEG: FF D8 FF
+  if (header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+
+  // GIF: 47 49 46 38
+  if (header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x38) {
+    return 'image/gif';
+  }
+
+  // ICO: 00 00 01 00
+  if (header[0] === 0x00 && header[1] === 0x00 && header[2] === 0x01 && header[3] === 0x00) {
+    return 'image/x-icon';
+  }
+
+  // WebP: 52 49 46 46 (RIFF)
+  if (header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46) {
+    if (buffer.length >= 12) {
+      const webpSig = buffer.slice(8, 12).toString('ascii');
+      if (webpSig === 'WEBP') {
+        return 'image/webp';
       }
     }
+  }
+
+  // BMP: 42 4D
+  if (header[0] === 0x42 && header[1] === 0x4D) {
+    return 'image/bmp';
+  }
+
+  // SVG: 检查 XML/SVG 标签
+  const text = buffer.slice(0, 100).toString('utf8', 0, Math.min(100, buffer.length)).trim();
+  if (text.startsWith('<svg') || text.startsWith('<?xml')) {
+    return 'image/svg+xml';
   }
 
   return null;
@@ -71,14 +149,27 @@ async function tryFetchFavicon(url, timeout = 5000) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
-      maxRedirects: 5,
+      maxRedirects: 0,
       validateStatus: (status) => status === 200
     });
 
+    const buffer = Buffer.from(response.data);
+
+    // 根据文件头判断实际的 MIME 类型
+    const actualMimeType = detectMimeType(buffer);
+
+    if (!actualMimeType) {
+      console.log(`Invalid image data from ${url}`);
+      return {
+        success: false,
+        error: 'Not a valid image'
+      };
+    }
+
     return {
       success: true,
-      data: response.data,
-      contentType: response.headers['content-type']
+      data: buffer,
+      contentType: actualMimeType
     };
   } catch (error) {
     return {
@@ -89,7 +180,7 @@ async function tryFetchFavicon(url, timeout = 5000) {
 }
 
 /**
- * 从网页 HTML 中查找并获取 favicon
+ * 从网页 HTML 中查找并获取 favicon 和 title
  */
 async function fetchFaviconFromHtml(url, timeout = 5000) {
   try {
@@ -98,24 +189,29 @@ async function fetchFaviconFromHtml(url, timeout = 5000) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
-      maxRedirects: 5
+      maxRedirects: 0,
+      validateStatus: (status) => status === 200
     });
 
     const baseUrl = new URL(url).origin;
-    const faviconUrl = parseFaviconFromHtml(response.data, baseUrl);
+    const { faviconUrl, title } = parseFaviconFromHtml(response.data, baseUrl);
 
     if (faviconUrl) {
-      return await tryFetchFavicon(faviconUrl, timeout);
+      const result = await tryFetchFavicon(faviconUrl, timeout);
+      if (result.success) {
+        result.title = title;
+      }
+      return result;
     }
 
-    return { success: false, error: 'No favicon found in HTML' };
+    return { success: false, error: 'No favicon found in HTML', title };
   } catch (error) {
     return { success: false, error: error.message };
   }
 }
 
 /**
- * 主函数：获取指定域名的 favicon
+ * 主函数：获取指定域名的 favicon 和 title
  */
 async function getFavicon(domain) {
   // 标准化域名
@@ -127,6 +223,8 @@ async function getFavicon(domain) {
   console.log(`Attempting to fetch favicon for: ${domain}`);
   console.log(`Trying variants:`, urlVariants);
 
+  let title = '';
+
   // 对每个 URL 变体进行尝试
   for (const baseUrl of urlVariants) {
     // 策略 1: 尝试 /favicon.ico
@@ -134,7 +232,14 @@ async function getFavicon(domain) {
     let result = await tryFetchFavicon(`${baseUrl}/favicon.ico`);
     if (result.success) {
       console.log(`Success: ${baseUrl}/favicon.ico`);
-      return result;
+      // 获取 title
+      title = await fetchTitle(baseUrl);
+      return {
+        success: true,
+        data: result.data,
+        contentType: result.contentType,
+        title
+      };
     }
 
     // 策略 2: 从 HTML 中解析 favicon
@@ -142,7 +247,16 @@ async function getFavicon(domain) {
     result = await fetchFaviconFromHtml(baseUrl);
     if (result.success) {
       console.log(`Success: Found in HTML from ${baseUrl}`);
-      return result;
+      return {
+        success: true,
+        data: result.data,
+        contentType: result.contentType,
+        title: result.title || ''
+      };
+    }
+    // 保存 title（即使 favicon 失败）
+    if (result.title) {
+      title = result.title;
     }
   }
 
@@ -152,7 +266,8 @@ async function getFavicon(domain) {
     success: true,
     data: generateLetterIcon(domain),
     contentType: 'image/svg+xml',
-    generated: true
+    generated: true,
+    title: title || domain
   };
 }
 

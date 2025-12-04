@@ -29,7 +29,7 @@ app.get('/favicon', async (req, res) => {
   if (!domain) {
     return res.status(400).json({
       error: 'Missing domain parameter',
-      usage: '/favicon?domain=example. com'
+      usage: '/favicon?domain=example.com'
     });
   }
 
@@ -37,10 +37,16 @@ app.get('/favicon', async (req, res) => {
     const result = await getFavicon(domain);
 
     if (result.success) {
-      // 设置正确的 Content-Type
-      res.set('Content-Type', result.contentType || 'image/x-icon');
-      res.set('Cache-Control', 'public, max-age=86400'); // 缓存 24 小时
-      return res.send(result.data);
+      // 将图标转换为 base64
+      const base64Icon = result.data.toString('base64');
+      const mimeType = result.contentType || 'image/x-icon';
+      const iconDataUrl = `data:${mimeType};base64,${base64Icon}`;
+
+      // 返回 JSON 格式
+      return res.json({
+        title: result.title || domain,
+        icon: iconDataUrl
+      });
     } else {
       return res.status(404).json({
         error: 'Failed to fetch favicon',
