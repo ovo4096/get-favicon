@@ -123,8 +123,8 @@ async function tryFetchFavicon(url, timeout = 5000) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
-      maxRedirects: 0,
-      validateStatus: (status) => status === 200
+      maxRedirects: 10,
+      validateStatus: (status) => status >= 200 && status < 400
     });
 
     const buffer = Buffer.from(response.data);
@@ -163,8 +163,8 @@ async function fetchFaviconFromHtml(url, timeout = 5000) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
-      maxRedirects: 0,
-      validateStatus: (status) => status === 200
+      maxRedirects: 5,
+      validateStatus: (status) => status >= 200 && status < 400
     });
 
     const baseUrl = new URL(url).origin;
