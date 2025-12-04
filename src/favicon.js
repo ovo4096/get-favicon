@@ -6,8 +6,31 @@ const { normalizeUrl, generateUrlVariants } = require('./utils');
  * 生成基于首字母的 SVG 图标
  */
 function generateLetterIcon(domain) {
-  // 提取域名的首字母
-  const letter = domain.charAt(0).toUpperCase();
+  // 提取主域名（去除子域名和端口）
+  let mainDomain = domain;
+  try {
+    // 移除协议
+    mainDomain = mainDomain.replace(/^https?:\/\//, '').replace(/^\/\//, '');
+    // 移除端口
+    mainDomain = mainDomain.split(':')[0];
+    // 移除路径
+    mainDomain = mainDomain.split('/')[0];
+
+    // 分割域名部分
+    const parts = mainDomain.split('.');
+    // 如果有多个部分，取倒数第二个（主域名），否则取第一个
+    if (parts.length >= 2) {
+      mainDomain = parts[parts.length - 2];
+    } else {
+      mainDomain = parts[0];
+    }
+  } catch (e) {
+    // 如果解析失败，使用原始域名
+    mainDomain = domain;
+  }
+
+  // 提取主域名的首字母
+  const letter = mainDomain.charAt(0).toUpperCase();
 
   // 根据首字母生成颜色（保持一致性）
   const colors = [
