@@ -4,6 +4,15 @@ const { getFavicon } = require('./favicon');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 错误处理
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // 健康检查端点
 app.get('/', (req, res) => {
   res.json({
@@ -26,7 +35,7 @@ app.get('/favicon', async (req, res) => {
 
   try {
     const result = await getFavicon(domain);
-    
+
     if (result.success) {
       // 设置正确的 Content-Type
       res.set('Content-Type', result.contentType || 'image/x-icon');
@@ -41,7 +50,7 @@ app.get('/favicon', async (req, res) => {
     }
   } catch (error) {
     console.error('Error fetching favicon:', error);
-    return res. status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       domain: domain
     });
@@ -51,4 +60,13 @@ app.get('/favicon', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Favicon API service running on port ${PORT}`);
   console.log(`Usage: http://localhost:${PORT}/favicon?domain=example.com`);
+  console.log(`Process ID: ${process.pid}`);
+}).on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', error);
+    process.exit(1);
+  }
 });
